@@ -1,44 +1,63 @@
 # Stores a pokemon based on dex number, moves, etc.
 # Numbers are all based on known internal IDs
 
-from enum import IntEnum, auto, Flag
-import copy
+from enum import IntEnum, auto, IntFlag
+import copy, codecs, re, os, traceback
 import pypokedex as pkd
-import codecs, re
+
+# debug input and output
+# inputCsv = "input.csv"
+# outputCsv = "output.csv"
 
 WIN = False
 # stores a full battle
 class Replay():
-    def __init__(self, fp, out):
+    def __init__(self, repJson, csv):
         # throw away the garbage header data as well as other unwanted stuff
-        self.preprocess(fp, out)
-        fp.close()
-        fp = codecs.open(out, 'r', "utf8")
+        # would be what these two do
+        # self.preprocess(fp, out)
+        # fp.close()
+        # we need codecs because usernames and nicknames can have unicode
+        
+        # setup labels for the input
+        print("Working on:", repJson, end=' ')
+        inputCsv = csv + "-in.csv"
+        outputCsv = csv + "-out.csv"
+        
+        with open(inputCsv, "w") as fpw:
+            for i in range(2):
+                for x in range(6):
+                    fpw.write("p{X}HP,p{X}Atk,p{X}Def,p{X}SpA,p{X}SpD,p{X}Spe,p{X}Move1,p{X}PP1,p{X}Move2,p{X}PP2,p{X}Move3,p{X}PP3,p{X}Move4,p{X}PP4,p{X}Ability,".format(X = x))
+            fpw.write("terrain,weather,trick room,wonder room,magic room,p1 lead,p1 transform,p1 hazards,p1 volatile,p1 AtkB,p1 DefB,p1 SpAB,p1 SpDB,p1 SpeB,p2 lead, p2 transform,p2 hazards,p2 volatile,p2 AtkB,p2 DefB,p2 SpAB,p2 SpDB,p2 SpeB\n")
+        # and setup labels for the output
+        with open(outputCsv, "w") as fpw:
+            fpw.writelines("p1Move,p1Switch,p2Move,p2Switch\n")
+        fp = codecs.open(repJson, 'r', "utf8")
+        
         # the first important thing we want is the poke block
-        # but first we need the team sizes because people are weird
-        line = fp.readline()
+        line = fp.readline().strip()
         while (not line.startswith("|team")):
-            line = fp.readline()
+            line = fp.readline().strip()
         
         # |teamsize|pX|int
         team1 = int(line.split('|')[3])
-        line = fp.readline()
+        line = fp.readline().strip()
         team2 = int(line.split('|')[3])
-        line = fp.readline()
+        line = fp.readline().strip()
         
         # just to make sure data isn't scuffed
         while (not line.startswith("|tier")):
-            line = fp.readline()
+            line = fp.readline().strip()
         battle_format = line.split('|')[2]
         if (not battle_format.startswith("[Gen 8] OU")):
             print("Error, not a gen 8 OU replay: ", battle_format)
         
         # now to get the two teams
-        line = fp.readline()
+        line = fp.readline().strip()
         # clearpoke is team preview signal
         # maybe we have a separate net to analyze the preview?
         while (not line.startswith("|clear")):
-            line = fp.readline()
+            line = fp.readline().strip()
         pokemon = []
         poke_str = [[], []]
         temp = []
@@ -46,69 +65,91 @@ class Replay():
         # |poke|pX|<name>, <gender>|
         # we store the pokemon and the string to make it easier to index later
         for x in range(team1):
-            line = fp.readline()
+            line = fp.readline().strip()
             nameList = line.split('|')[3].split(", ")
+            # I have zero idea how to deal with this without rewriting a lot of stuff
+            if ("Zoroark" in line):
+                print("Error: cannot track Zoroark")
+                fp.close()
+                os.rename(repJson, repJson.replace("scrape", "scrape-done"))
+                return
+            if ("Gourgeist" in line):
+                print("I'm not making a case for Gourgeist when its raw usage is 3000 in a month")
+                fp.close()
+                os.rename(repJson, repJson.replace("scrape", "scrape-done"))
+                return
             if (len(nameList) == 1):
-                temp.append(Pokemon(nameList[0], Gender.Genderless))
+                if (nameList[0].startswith("Silvally")):
+                    temp.append(Pokemon("Silvally", Gender.G))
+                    nameList[0] = "Silvally"
+                temp.append(Pokemon(nameList[0], Gender.G))
                 poke_str[0].append(nameList[0].strip())
             else:
-                if ("*" in nameList[0]): # 99% sure this is purely a case for urshifus alt form
-                    nameList[0] = "Urshifu-Rapid-Strike"
-                elif(nameList[0] == "Toxtricity"): # next error, PS does not care but the API does
-                    nameList[0] = "Toxtricity-amped"
-                temp.append(Pokemon(nameList[0], nameList[1]))
+                if (nameList[0].startswith("Urshifu")):
+                    temp.append(Pokemon("Urshifu-Rapid-Strike", nameList[1]))
+                    nameList[0] = "Urshifu-Rapid-Strike" # is it just urshifu or this
+                else:
+                    temp.append(Pokemon(nameList[0], nameList[1]))
                 poke_str[0].append(nameList[0].strip())
         pokemon.append(temp)
         
         temp = []
 
         for x in range(team2):
-            line = fp.readline()
+            line = fp.readline().strip()
             nameList = line.split('|')[3].split(", ")
+            if ("Zoroark" in line):
+                print("Error: cannot track Zoroark")
+                fp.close()
+                os.rename(repJson, repJson.replace("scrape", "scrape-done"))
+                return
+            if ("Gourgeist" in line):
+                print("I'm not making a case for Gourgeist when its raw usage is 3000 in a month")
+                fp.close()
+                os.rename(repJson, repJson.replace("scrape", "scrape-done"))
+                return
             if (len(nameList) == 1):
-                temp.append(Pokemon(nameList[0], Gender.Genderless))
+                if (nameList[0].startswith("Silvally")):
+                    temp.append(Pokemon("Silvally", Gender.G))
+                    nameList[0] = "Silvally"
+                temp.append(Pokemon(nameList[0], Gender.G))
                 poke_str[1].append(nameList[0].strip())
-            else:                
-                if ("*" in nameList[0]): # 99% sure this is purely a case for urshifus alt form
+            else:
+                if (nameList[0].startswith("Urshifu")):
                     temp.append(Pokemon("Urshifu-Rapid-Strike", nameList[1]))
-                    nameList[0] = "Urshifu"
-                elif(nameList[0] == "Toxtricity"): # next error, PS does not care but the API does
-                    temp.append(Pokemon("Toxtricity-amped", nameList[1]))
+                    nameList[0] = "Urshifu-Rapid-Strike"
                 else:
                     temp.append(Pokemon(nameList[0], nameList[1]))
                 poke_str[1].append(nameList[0].strip())
         pokemon.append(temp)
+        global WIN
         
         # somewhere here should be where we analyze the team preview
         # it can be as simple as taking their dex numbers and going off leads usage
-        line = fp.readline()
+        line = fp.readline().strip()
         while (not line.startswith("|teampreview")):
-            line = fp.readline()
+            if ((line.startswith("|win")) or (line.startswith("|tie"))):
+                WIN = True
+            line = fp.readline().strip()
         
         turns = []
-        print("turn:", 0)
         turns.append(Turn(fp, pokemon, poke_str, None))
-        
-        line = fp.readline()
+        turns[0].GenerateFiles(inputCsv, outputCsv)
+        line = fp.readline().strip()
         i = 0
+        
+        # print(poke_str)
+        
         while (not (WIN)):
-            print("turn:", i + 1)
+            #print("Turn:", i)
             turns.append(Turn(fp, pokemon, poke_str, turns[i]))
+            turns[i + 1].GenerateFiles(inputCsv, outputCsv)
             i += 1
         
+        print("Won at turn:", i)
+        WIN = False
         fp.close()
-        
-
-    def preprocess(self, fp, out):
-        line = fp.readline()
-        everything = line.split("\\n")
-        with open(out, "w") as fpw:
-            everything.pop(0) # this is just metadata we don't need
-            for x in everything:
-                if (re.match("\|[cjl]\|.*" , x)): # delete leaves/joins/comments
-                    pass
-                else:
-                    fpw.write(x + "\n")
+        os.rename(repJson, repJson.replace("scrape", "scrape-done"))
 
 
 
@@ -126,6 +167,7 @@ class Replay():
 class Turn():
     # teampreview turn
     def __init__(self, fp, pokemon, poke_str, prev_turn):
+        self.debugStr = ""
         # first turns always start with a start instruction 
         # followed by switch instructions
         
@@ -133,59 +175,166 @@ class Turn():
         # p1Lead/p2Lead: int containing the index of the lead
         # first: who went first this turn
         # fields: the list in order of currently active fields
+        global WIN
         if (prev_turn is None):
-            self.p1Hazards = []
-            self.p2Hazards = []
-            self.p1Volatile = []
-            self.p2Volatile = []
-            self.p1Boosts = [0, 0, 0, 0, 0]
-            self.p2Boosts = [0, 0, 0, 0, 0]
+            self.p1Hazards = Hazards_List.NoHazards
+            self.p2Hazards = Hazards_List.NoHazards
+            self.p1Volatile = Volatile_List.NoVolatile
+            self.p2Volatile = Volatile_List.NoVolatile
+            self.p1Boosts = [0, 0, 0, 0, 0, 0, 0]
+            self.p2Boosts = [0, 0, 0, 0, 0, 0, 0]
             self.p1Crit = False
             self.p2Crit = False
             self.isTurn0 = True
             self.insOrder = []
             self.p1Party = copy.deepcopy(pokemon[0])
             self.p2Party = copy.deepcopy(pokemon[1])
+            self.terrain = Terrain_List.NoTerrain
+            self.weather = Weather_List.NoWeather
+            self.trickRoom = False
+            self.wonderRoom = False
+            self.magicRoom = False
+            self.gravity = False
+            self.p1SwitchFlag = False
+            self.p2SwitchFlag = False
             
-            line = fp.readline()
+            line = fp.readline().strip()
             while (not line.startswith("|start")): # first turn signal
-                line = fp.readline()
+                line = fp.readline().strip()
+                if ((line.startswith("|win")) or (line.startswith("|tie"))):
+                    WIN = True
+                    return
             lead = fp.readline().split("|")
             
-            # leads are determmined by speed?
-            # idr if it's here or if you have to go off ability
+            # leads are not determmined by speed
+            # but we might as well do it this way
             if (lead[2][1] == '1'):
                 self.first = 1
-                self.p1Lead = poke_str[0].index(lead[3].split(",")[0])
+                if (lead[3].split(",")[0].startswith("Silvally")):
+                    for x in range(len(poke_str[0])):
+                        if poke_str[0][x].startswith("Silvally"):
+                            self.p1Lead = x
+                else:
+                    self.p1Lead = poke_str[0].index(lead[3].split(",")[0])
                 lead = fp.readline().split("|")
                 self.p2Lead = poke_str[1].index(lead[3].split(",")[0])
             else:
                 self.first = 2
-                self.p2Lead = poke_str[1].index(lead[3].split(",")[0])
+                if (lead[3].split(",")[0].startswith("Silvally")):
+                    for x in range(len(poke_str[1])):
+                        if poke_str[1][x].startswith("Silvally"):
+                            self.p1Lead = x
+                else:
+                    self.p2Lead = poke_str[1].index(lead[3].split(",")[0])
                 lead = fp.readline().split("|")
                 self.p1Lead = poke_str[0].index(lead[3].split(",")[0])
             
-            self.fields = [Field_List.NoField]
+            self.p1Switch = self.p1Lead
+            self.p2Switch = self.p2Lead
             
-            line = fp.readline()
+            line = fp.readline().strip()
             # since turn 0 should only do field effects, we only check for them
             while (not line.startswith("|turn")):
+                info = line.split("|")
+                field_str = info[2].replace(" ", "").replace("move:", "").strip()
+                if ((line.startswith("|win")) or (line.startswith("|tie"))):
+                    WIN = True
+                    return
                 if (line.startswith("|-fieldstart")):
-                    info = line.split("|")
-                    field_str = info[2][6:].replace(" ", "")
-                    self.fields.append(Field_List[field_str])
+                    # we need some logic here to determine what type of field
+                    # trick and wonder rooms cannot come out turn 0 but c/p code
+                    if field_str.startswith("Trick"):
+                        self.rickRoom = True
+                    elif field_str.startswith("Wonder"):
+                        self.wonderRoom = True
+                    elif field_str.startswith("Gravity"):
+                        self.gravity = True
+                    elif field_str.endswith("Terrain"):
+                        self.terrain = Terrain_List[field_str]
+                    elif field_str.startswith("Magic"):
+                        self.magicRoom = True
+                    else: # error?
+                        print("Unknown field start:", line)
+                        exit()
                     if (info[4][6] == '1'): # [4][6] is the player number
                         ability_str = info[3][15:].replace(" ", "")
-                        pokemon[0][self.p1Lead].ability = Ability_List[ability_str]
+                        self.p1Party[self.p1Lead].ability = Ability_List[ability_str]
                     else:
                         ability_str = info[3][15:].replace(" ", "")
-                        pokemon[1][self.p2Lead].ability = Ability_List[ability_str]
-                line = fp.readline()
+                        self.p2Party[self.p2Lead].ability = Ability_List[ability_str]
+                elif (line.startswith("|-weather")):
+                    self.weather = Weather_List[field_str]
+                # intimidate and friends
+                elif (line.startswith("|-ability")):
+                    if (info[2][1] == '1'):
+                        self.p1Party[self.p1Lead].ability = Ability_List[info[3].replace(" ","")]
+                    else:
+                        self.p2Party[self.p2Lead].ability = Ability_List[info[3].replace(" ","")]
+                elif (line.startswith("|-unboost")):
+                    stat = Stat_List[info[3] + 'S']
+                    if (info[2][1] == '1'):
+                        self.p1Boosts[stat] += int(info[4]) * -1
+                    else:
+                        self.p2Boosts[stat] += int(info[4]) * -1
+                elif (line.startswith("|-item")):
+                    if (info[2][1] == '1'):
+                        self.p1Party[self.p1Lead].item = info[3].replace(" ", "")
+                    else:
+                        self.p2Party[self.p2Lead].item = info[3].replace(" ", "")
+                        
+                elif (line.startswith("|-boost")):
+                    stat = Stat_List[info[3] + 'S']
+                    if (info[2][1] == '1'):
+                        self.p1Boosts[stat] += int(info[4])
+                    else:
+                        self.p2Boosts[stat] += int(info[4])
+                        
+                elif (line.startswith("|-enditem")):
+                    if (info[2][1] == '1'):
+                        self.p1Party[self.p1Lead].item = "None"
+                    else:
+                        self.p2Party[self.p2Lead].item = "None"
+                elif (line.startswith("|-fail")):
+                    pass
+                elif (line.startswith("|-transform")):
+                    if (info[2][1] == '1'):
+                        self.p1Party[self.p1Lead].ability = Ability_List.Imposter
+                        self.p1Party[self.p1Lead].Transformed = True
+                    else:
+                        self.p1Party[self.p1Lead].ability = Ability_List.Imposter
+                        self.p2Party[self.p2Lead].Transformed = True
+                # white herb activation from intimidate
+                elif (line.startswith("|-clearnegativeboost")):
+                    if (info[2][1] == '1'):
+                        for x in range(7):
+                            if (self.p1Boosts[x] < 0):
+                                self.p1Boosts[x] = 0
+                    else:
+                        for x in range(7):
+                            if (self.p1Boosts[x] < 0):
+                                self.p1Boosts[x] = 0
+
+                    
+                else:
+                    print("Unknown turn 0 action:", line)
+                    exit()
+                line = fp.readline().strip()
         # this is for every actual turn
         else:
             # first get the previous turn leads and other stuff
-            self.p1Lead = prev_turn.p1Lead
-            self.p2Lead = prev_turn.p2Lead
+            if (prev_turn.p1SwitchFlag):
+                self.p1Lead = prev_turn.p1Switch
+            else:
+                self.p1Lead = prev_turn.p1Lead
+            if (prev_turn.p2SwitchFlag):
+                self.p2Lead = prev_turn.p2Switch
+            else:
+                self.p2Lead = prev_turn.p2Lead
+            self.p1Switch = -1
+            self.p1SwitchFlag = False
+            self.p2Switch = -1
+            self.p2SwitchFlag = False
+
             self.p1Hazards = prev_turn.p1Hazards 
             self.p2Hazards = prev_turn.p2Hazards 
             self.p1Volatile = prev_turn.p1Volatile
@@ -198,11 +347,26 @@ class Turn():
             self.insOrder = []
             self.p1Party = copy.deepcopy(prev_turn.p1Party)
             self.p2Party = copy.deepcopy(prev_turn.p2Party)
+            self.terrain = prev_turn.terrain
+            self.weather = prev_turn.weather
+            self.trickRoom = prev_turn.trickRoom
+            self.wonderRoom = prev_turn.wonderRoom
+            self.magicRoom = prev_turn.magicRoom
+            self.gravity = prev_turn.gravity
             
-            self.fields = copy.deepcopy(prev_turn.fields)
+            # index of the move
+            self.p1Move = 0
+            self.p2Move = 0
+            
+            
+            #print("p1\n", self.p1Party[self.p1Lead])
+            #print("p2\n", self.p2Party[self.p2Lead])
+            
             
             line = fp.readline().strip()
-            print(line)
+            while ((line == "|") or (line == "")):
+                line = fp.readline().strip()
+            # print(line)
             line = line.split("|")
             
             # loop to check every instruction in a turn
@@ -211,8 +375,7 @@ class Turn():
             # https://github.com/smogon/pokemon-showdown/blob/master/sim/SIM-PROTOCOL.md
             while (not line[1].startswith("turn")):
                 # win con
-                if (line[1].startswith("win")):
-                    global WIN
+                if ((line[1].startswith("win")) or (line[1].startswith("tie"))):
                     WIN = True
                     return
                 self.insOrder.append(line[1])
@@ -221,31 +384,80 @@ class Turn():
                 # and incrementing the pp value for that move
                 # right now it ignores pressure, which should be fixed
                 if (line[1].startswith("move")):
+                    theMove = Move_List[line[3].replace(" ", "").replace("-", "").replace("\'", "")]
+                    if (theMove == Move_List.Struggle):
+                        break
                     if (line[2][1] == '1'):
-                        # this horrible mess changes an unknown move to a known one
-                        if (not (line[3] in pokemon[0][self.p1Lead].Moves)):
-                            pokemon[0][self.p1Lead].Moves[pokemon[0][self.p1Lead].Filled_Moves] = Move_List[line[3].replace(" ", "").replace("-", "")]
-                            ind = pokemon[0][self.p1Lead].Filled_Moves
-                        else: # if the move is there
-                            ind = pokemon[0][self.p1Lead].Moves.index(Move_List[line[3].replace(" ", "")])
-                        pokemon[0][self.p1Lead].PP[ind] += 1
-
+                        if (len(line) > 5):
+                            if ("ability" in line[5]):
+                                self.p1Party[self.p1Lead].Ability = Ability_List[line[5].split(": ")[1].replace(" ", "")]
+                            break
+                        thePokemon = self.p1Party[self.p1Lead]
+                        thePokemon = self.p1Party[self.p1Lead]
+                        thePokemon.AddMove(theMove)
+                    # player 2
                     else:
-                        if (not (line[3] in pokemon[0][self.p2Lead].Moves)):
-                            pokemon[0][self.p2Lead].Moves[pokemon[0][self.p2Lead].Filled_Moves] = Move_List[line[3].replace(" ", "")]
-                            ind = pokemon[0][self.p2Lead].Filled_Moves
-                        else: # if the move is there
-                            ind = pokemon[0][self.p2Lead].Moves.index(Move_List[line[3].replace(" ", "")])
-                        pokemon[0][self.p2Lead].PP[ind] += 1
+                        if (len(line) > 5):
+                            if ("ability" in line[5]):
+                                self.p2Party[self.p2Lead].Ability = Ability_List[line[5].split(": ")[1].replace(" ", "")]
+                            break
+                        thePokemon = self.p2Party[self.p2Lead]
+                        thePokemon.AddMove(theMove)
                         
                 # switch lead logic
                 elif (line[1].startswith("switch")):
                     if (line[2][1] == '1'):
-                        self.p1Lead = poke_str[0].index(line[3].split(",")[0])
-                        self.p1Boosts = [0, 0, 0, 0, 0]
+                        if (line[3].split(",")[0].startswith("Silvally")):
+                            for x in range(len(poke_str[0])):
+                                if poke_str[0][x].startswith("Silvally"):
+                                    type = line[3].split("-")[1]
+                                    self.p1Party[x].type = [Types[type.lower().replace(", shiny", "")]]
+                                    self.p1Switch = x
+                                    self.p1Lead = x
+                        elif (line[3].split(",")[0].startswith("Urshifu")):
+                            for x in range(len(poke_str[0])):
+                                if poke_str[0][x].startswith("Urshifu"):
+                                    self.p1Switch = x
+                                    self.p1Lead = x
+                                    break
+                        else:
+                            if (self.p1Party[self.p1Lead].Transformed):
+                                self.p1Party[self.p1Lead].Transformed = False
+                                self.p1Party[self.p1Lead].ResetTransformMoves()
+                            if ("Busted" in line[3]):
+                                x = poke_str[0].index(line[3].split(",")[0].replace("-Busted", ""))
+                            else:
+                                x = poke_str[0].index(line[3].split(",")[0])
+                            self.p1Switch = x
+                            self.p1Lead = x
+                        self.p1Boosts = [0, 0, 0, 0, 0, 0, 0]
+                        self.p1SwitchFlag = True
                     else:
-                        self.p2Lead = poke_str[1].index(line[3].split(",")[0])
-                        self.p2Boosts = [0, 0, 0, 0, 0]
+                        if (line[3].split(",")[0].startswith("Silvally")):
+                            for x in range(len(poke_str[1])):
+                                if poke_str[1][x].startswith("Silvally"):
+                                    type = line[3].split("-")[1]
+                                    self.p2Party[x].type = [Types[type.lower().replace(", shiny", "")]]
+                                    self.p2Switch = x
+                                    self.p2Lead = x
+                        elif (line[3].split(",")[0].startswith("Urshifu")):
+                            for x in range(len(poke_str[1])):
+                                if poke_str[1][x].startswith("Urshifu"):
+                                    self.p2Switch = x
+                                    self.p2Lead = x
+                                    break
+                        else:
+                            if (self.p1Party[self.p1Lead].Transformed):
+                                self.p1Party[self.p1Lead].Transformed = False
+                                self.p1Party[self.p1Lead].ResetTransformMoves()
+                            if ("Busted" in line[3]):
+                                x = poke_str[1].index(line[3].split(",")[0].replace("-Busted", ""))
+                            else:
+                                x = poke_str[1].index(line[3].split(",")[0])
+                            self.p2Switch = x
+                            self.p2Lead = x
+                        self.p2Boosts = [0, 0, 0, 0, 0, 0, 0]
+                        self.p2SwitchFlag = True
 
                 # handles a permanent change like megas
                 # this is probably unused for OU
@@ -265,10 +477,40 @@ class Turn():
                 # from para and disable
                 elif (line[1].startswith("cant")):
                     pass
+                    
+                elif (line[1].startswith("drag")):
+                    if (line[2][1] == '1'):
+                        if (line[3].split(",")[0].startswith("Silvally")):
+                            for x in range(len(poke_str[0])):
+                                if poke_str[0][x].startswith("Silvally"):
+                                    type = line[3].split("-")[1]
+                                    self.p1Party[x].type = [Types[type.lower()]]
+                                    self.p1Switch = x
+                        else:
+                            self.p1Switch = poke_str[0].index(line[3].split(",")[0])
+                        self.p1Boosts = [0, 0, 0, 0, 0, 0, 0]
+                        self.p1SwitchFlag = True
+                    else:
+                        if (line[3].split(",")[0].startswith("Silvally")):
+                            for x in range(len(poke_str[1])):
+                                if poke_str[1][x].startswith("Silvally"):
+                                    type = line[3].split("-")[1]
+                                    self.p2Party[x].type = [Types[type.lower()]]
+                                    self.p1Switch = x
+                        else:
+                            self.p2Switch = poke_str[1].index(line[3].split(",")[0])
+                        self.p2Boosts = [0, 0, 0, 0, 0, 0, 0]
+                        self.p2SwitchFlag = True
 
                 # something died
                 # I think this can be skipped
                 elif (line[1].startswith("faint")):
+                    pass
+
+                elif (line[1].startswith("raw")):
+                    pass
+
+                elif (line[1].startswith("c")):
                     pass
 
                 # idk where this gets used, it's not block
@@ -296,68 +538,74 @@ class Turn():
                 elif (line[1].startswith("-damage")):
                     if (line[2][1] == '1'):
                         if ("fnt" in line[3]):
-                            pokemon[0][self.p1Lead].HP = 0
+                            self.p1Party[self.p1Lead].HP = 0
                         else:
-                            pokemon[0][self.p1Lead].HP = int(line[3].split("\\")[0])
+                            try:
+                                self.p1Party[self.p1Lead].HP = int(line[3].split("\\")[0])
+                            except:
+                                self.p1Party[self.p1Lead].HP = int(line[3].split(" ")[0])
                     else:
                         if ("fnt" in line[3]):
-                            pokemon[0][self.p1Lead].HP = 0
+                            self.p1Party[self.p1Lead].HP = 0
                         else:
-                            pokemon[1][self.p2Lead].HP = int(line[3].split("\\")[0])
+                            try:
+                                self.p2Party[self.p2Lead].HP = int(line[3].split("\\")[0])
+                            except:
+                                self.p2Party[self.p2Lead].HP = int(line[3].split(" ")[0])
 
                 # inverse inflict damage
                 elif (line[1].startswith("-heal")):
                     if (line[2][1] == '1'):
-                        pokemon[0][self.p1Lead].HP = int(line[3].split("\\")[0])
+                        self.p1Party[self.p1Lead].HP = int(line[3].split("\\")[0])
                     else:
-                        pokemon[1][self.p2Lead].HP = int(line[3].split("\\")[0])
+                        self.p2Party[self.p2Lead].HP = int(line[3].split("\\")[0])
 
                 # ...what
                 # maybe it's used for healing wish and clones?
                 elif (line[1].startswith("-sethp")):
                     if (line[2][1] == '1'):
-                        pokemon[0][self.p1Lead].HP = int(line[3].split("\\")[0])
+                        self.p1Party[self.p1Lead].HP = int(line[3].split("\\")[0])
                     else:
-                        pokemon[1][self.p2Lead].HP = int(line[3].split("\\")[0])
+                        self.p2Party[self.p2Lead].HP = int(line[3].split("\\")[0])
 
                 # inflict a status
                 elif (line[1].startswith("-status")):
                     if (line[2][1] == '1'):
-                        pokemon[0][self.p1Lead].Status = Status_List[line[3]]
+                        self.p1Party[self.p1Lead].Status = Status_List[line[3]]
                     else:
-                        pokemon[1][self.p2Lead].Status = Status_List[line[3]]
+                        self.p2Party[self.p2Lead].Status = Status_List[line[3]]
 
                 # basically just eating a berry?
                 elif (line[1].startswith("-curestatus")):
                     if (line[2][1] == '1'):
-                        pokemon[0][self.p1Lead].Status = Status_List.Non
+                        self.p1Party[self.p1Lead].Status = Status_List.non
                     else:
-                        pokemon[1][self.p2Lead].Status = Status_List.Non
+                        self.p2Party[self.p2Lead].Status = Status_List.non
 
                 # heal bell and aroma
                 elif (line[1].startswith("-cureteam")):
                     if (line[2][1] == '1'):
-                        for x in range(len(pokemon[0])):
-                            pokemon[0][x].Status = Status_List.Non
+                        for x in range(len(self.p1Party)):
+                            self.p1Party[x].Status = Status_List.non
                     else:
-                        for x in range(len(pokemon[1])):
-                            pokemon[1][x].Status = Status_List.Non
+                        for x in range(len(self.p2Party)):
+                            self.p2Party[x].Status = Status_List.non
 
                 # stat boosts
                 elif (line[1].startswith("-boost")):
                     stat = Stat_List[line[3] + 'S']
                     if (line[2][1] == '1'):
-                        self.p1Boosts[stat] = int(line[4])
+                        self.p1Boosts[stat] += int(line[4])
                     else:
-                        self.p2Boosts[stat] = int(line[4])
+                        self.p2Boosts[stat] += int(line[4])
 
                 # inverse stat boosts
                 elif (line[1].startswith("-unboost")):
                     stat = Stat_List[line[3] + 'S']
                     if (line[2][1] == '1'):
-                        self.p1Boosts[stat] = int(line[4])
+                        self.p1Boosts[stat] += int(line[4]) * -1
                     else:
-                        self.p2Boosts[stat] = int(line[4])
+                        self.p2Boosts[stat] += int(line[4]) * -1
 
                 # trade stat boosts between two pokemon
                 # pretty sure this doesn't matter
@@ -367,45 +615,44 @@ class Turn():
                 # topsy-turvy
                 elif (line[1].startswith("-invertboost")):
                     if (line[2][1] == '1'):
-                        for x in range(pokemon[0]):
+                        for x in range(len(self.p1Party)):
                             self.p1Boosts[x] *= -1
                     else:
-                        for x in range(pokemon[1]):
+                        for x in range(len(self.p2Party)):
                             self.p2Boosts[x] *= -1
 
                 # clear smog
                 elif (line[1].startswith("-clearboost")):
                     if (line[2][1] == '1'):
-                        for x in range(pokemon[0]):
+                        for x in range(len(self.p1Party)):
                             self.p1Boosts[x] = 0
                     else:
-                        for x in range(pokemon[1]):
+                        for x in range(len(self.p2Party)):
                             self.p2Boosts[x] = 0
 
                 # haze clears the whole field
                 elif (line[1].startswith("-clearallboost")):
-                    self.p1Boosts[x] = [0, 0, 0, 0, 0]
-                    self.p2Boosts[x] = [0, 0, 0, 0, 0]
+                    self.p1Boosts = [0, 0, 0, 0, 0, 0, 0]
+                    self.p2Boosts = [0, 0, 0, 0, 0, 0, 0]
 
                 # spec thief logic, unused I think
                 elif (line[1].startswith("-clearpositiveboost")):
                     if (line[2][1] == '1'):
-                        for x in range(5):
+                        for x in range(7):
                             if (self.p1Boosts[x] > 0):
                                 self.p1Boosts[x] = 0
                     else:
-                        for x in range(5):
+                        for x in range(7):
                             if (self.p1Boosts[x] > 0):
                                 self.p1Boosts[x] = 0
 
-                # unused in gen 8?
                 elif (line[1].startswith("-clearnegativeboost")):
                     if (line[2][1] == '1'):
-                        for x in range(5):
+                        for x in range(7):
                             if (self.p1Boosts[x] < 0):
                                 self.p1Boosts[x] = 0
                     else:
-                        for x in range(5):
+                        for x in range(7):
                             if (self.p1Boosts[x] < 0):
                                 self.p1Boosts[x] = 0
 
@@ -415,44 +662,123 @@ class Turn():
 
                 # rain and stuff
                 elif (line[1].startswith("-weather")):
-                    self.fields.append(Field_List[line[2][5:].replace(" ", "")])
+                    self.weather = Weather_List[line[2].replace(" ", "").replace("none", "NoWeather")]
 
                 # terrain/room start
                 elif (line[1].startswith("-fieldstart")):
-                    self.fields.append(Field_List[line[2][5:].replace(" ", "")])
+                    field_str = line[2].replace("move:", "").strip()
+                    if field_str.startswith("Trick"):
+                        self.rickRoom = True
+                    elif field_str.startswith("Wonder"):
+                        self.wonderRoom = True
+                    elif field_str.startswith("Gravity"):
+                        self.gravity = True
+                    elif field_str.endswith("Terrain"):
+                        self.terrain = Terrain_List[field_str.replace(" ", "")]
+                    elif field_str.startswith("Magic"):
+                        self.magicRoom = True
+                    else: # error?
+                        print("Unknown field start:", line)
+                        exit()
+                    # this sets the ability based on fields
+                    # might be inaccurate
+                    # if (info[4][6] == '1'): # [4][6] is the player number
+                    #     ability_str = info[3][15:].replace(" ", "")
+                    #     self.p1Party[self.p1Lead].ability = Ability_List[ability_str]
+                    # else:
+                    #     ability_str = info[3][15:].replace(" ", "")
+                    #     self.p2Party[self.p2Lead].ability = Ability_List[ability_str]
 
                 # terrain/room end
                 elif (line[1].startswith("-fieldend")):
-                    self.fields.remove(Field_List[line[2][5:].replace(" ", "")])
+                    field_str = line[2].replace("move:", "").strip()
+                    if field_str.startswith("Trick"):
+                        self.rickRoom = False
+                    elif field_str.startswith("Wonder"):
+                        self.wonderRoom = False
+                    elif field_str.startswith("Gravity"):
+                        self.gravity = True
+                    elif field_str.endswith("Terrain"):
+                        self.terrain = Terrain_List.NoTerrain
+                    elif field_str.startswith("Magic"):
+                        self.magicRoom = True
+                    else: # error?
+                        print("Unknown field start:", line)
+                        exit()
 
                 # this is where stealth rock and other one side events happen
                 elif (line[1].startswith("-sidestart")):
                     if (line[2][1] == '1'):
-                        self.p1Hazards.append(line[3].replace(" ", ""))
+                        hazard = Hazards_List[line[3].replace(" ", "").replace("move:", "")]
+                        if ((hazard == Hazards_List.ToxicSpikes) and (self.p1Hazards & Hazards_List.ToxicSpikes)):
+                            hazard = Hazards_List.ToxicSpikes2
+
+                        elif ((hazard == Hazards_List.Spikes) and (self.p1Hazards & Hazards_List.Spikes)):
+
+                            if ((hazard == Hazards_List.Spikes) and (self.p1Hazards & Hazards_List.Spikes2)):
+                                hazard = Hazards_List.Spikes3
+                            else:
+                                hazard = Hazards_List.Spikes2
+
+                        self.p1Hazards &= hazard
                     else:
-                        self.p2Hazards.append(line[3].replace(" ", ""))
+                        hazard = Hazards_List[line[3].replace(" ", "").replace("move:", "")]
+                        if ((hazard == Hazards_List.ToxicSpikes) and (self.p1Hazards & Hazards_List.ToxicSpikes)):
+                            hazard = Hazards_List.ToxicSpikes2
+                        elif ((hazard == Hazards_List.Spikes) and (self.p1Hazards & Hazards_List.Spikes)):
+
+                            if ((hazard == Hazards_List.Spikes) and (self.p1Hazards & Hazards_List.Spikes2)):
+                                hazard = Hazards_List.Spikes3
+                            else:
+                                hazard = Hazards_List.Spikes2
+
+                        self.p2Hazards &= hazard
 
                 # inverse side start, idk where this will appear
                 # besides defog
                 elif (line[1].startswith("-sideend")):
                     if (line[2][1] == '1'):
-                        self.p1Hazards.remove(line[3].replace(" ", ""))
+                        self.p1Hazards ^= ~Hazards_List[line[3].replace(" ", "").replace("move:", "")]
                     else:
-                        self.p2Hazards.remove(line[3].replace(" ", ""))
+                        self.p2Hazards ^= ~Hazards_List[line[3].replace(" ", "").replace("move:", "")]
 
                 # volatile status (confusion, taunt, sub)
                 elif (line[1].startswith("-start")):
                     if (line[2][1] == '1'):
-                        self.p1Volatile.append(line[3].replace(" ", ""))
+                        
+                        if (line[3] == "typechange"):
+                            if (len(line) > 5):
+                                if ("Burn Up" in line[5]):
+                                    types = line[4].split("\\/")
+                                    tempType = []
+                                    for x in types:
+                                        tempType.append(Types[x.replace("???", "question").lower()])
+                                    self.p1Party[self.p1Lead].OverrideType = tempType
+                                else:
+                                    self.p1Party[self.p1Lead].OverrideType = [Types[line[4].lower()]]
+                        self.p1Volatile &= Volatile_List[line[3].replace(" ", "").replace("move:", "").replace("ability:", "")]
                     else:
-                        self.p2Volatile.append(line[3].replace(" ", ""))
+                        if (line[3] == "typechange"):
+                            if (len(line) > 5):
+                                if ("Burn Up" in line[5]):
+                                    types = line[4].split("\\/")
+                                    tempType = []
+                                    for x in types:
+                                        tempType.append(Types[x.replace("???", "question").lower()])
+                                    self.p2Party[self.p2Lead].OverrideType = tempType
+                                else:
+                                    self.p2Party[self.p2Lead].OverrideType = [Types[line[4].lower()]]
 
                 # inverse volatile status (confusion, taunt, sub)
-                elif (line[1].startswith("-end")):
+                elif (line[1] == "-end"):
                     if (line[2][1] == '1'):
-                        self.p1Volatile.remove(line[3].replace(" ", ""))
+                        if (line[3] == "typechange"):
+                            self.p1Party[self.p1Lead].OverrideType = [Type.NoType]
+                        self.p1Volatile &= ~Volatile_List[line[3].replace(" ", "").replace("move:", "").replace("ability:", "")]
                     else:
-                        self.p2Volatile.remove(line[3].replace(" ", ""))
+                        if (line[3] == "typechange"):
+                            self.p1Party[self.p1Lead].OverrideType = [Type.NoType]
+                        self.p2Volatile &= ~Volatile_List[line[3].replace(" ", "").replace("move:", "").replace("ability:", "")]
 
                 # it always mattered
                 elif (line[1].startswith("-crit")):
@@ -479,24 +805,24 @@ class Turn():
                 # leftovers/life orb reveal
                 elif (line[1].startswith("-item")):
                     if (line[2][1] == '1'):
-                        pokemon[0][self.p1Lead].item = line[3].replace(" ", "")
+                        self.p1Party[self.p1Lead].item = line[3].replace(" ", "")
                     else:
-                        pokemon[1][self.p2Lead].item = line[3].replace(" ", "")
+                        self.p2Party[self.p2Lead].item = line[3].replace(" ", "")
 
                 # knock off
                 elif (line[1].startswith("-enditem")):
                     if (line[2][1] == '1'):
-                        pokemon[0][self.p1Lead].item = "None"
+                        self.p1Party[self.p1Lead].item = "None"
                     else:
-                        pokemon[1][self.p2Lead].item = "None"
+                        self.p2Party[self.p2Lead].item = "None"
 
                 # set the ability on a pokemon
                 # and maybe also handle intimidate and stuff
                 elif (line[1].startswith("-ability")):
                     if (line[2][1] == '1'):
-                        pokemon[0][self.p1Lead].Ability = Ability_List[line[3].replace(" ", "")]
+                        self.p1Party[self.p1Lead].Ability = Ability_List[line[3].replace(" ", "").replace("-","")]
                     else:
-                        pokemon[1][self.p2Lead].Ability = Ability_List[line[3].replace(" ", "")]
+                        self.p2Party[self.p2Lead].Ability = Ability_List[line[3].replace(" ", "").replace("-","")]
 
                 # suppressed by gastro acid
                 # idk how to even approach this
@@ -504,9 +830,13 @@ class Turn():
                     pass
 
                 # ditto is cool
-                # idk how to approach this either
+                # clear the moves on transform so stuff does not break?
+                # or maybe instead we just copy your own moves?
                 elif (line[1].startswith("-transform")):
-                    pass
+                    if (line[2][1] == '1'):
+                        self.p1Party[self.p1Lead].Transformed = True
+                    else:
+                        self.p2Party[self.p2Lead].Transformed = True
 
                 # unused in gen 8
                 elif (line[1].startswith("-primal")):
@@ -591,43 +921,118 @@ class Turn():
 
                     
                 line = fp.readline().strip()
-                print(line)
+                while ((line == "|") or (line == "") or (line[0] != "|")):
+                    line = fp.readline().strip()
+                # print(line)
                 line = line.split("|")
             
             return
 
-
+    # currently unused
     def predictSpeed(self): # if this returns true, speed is currently "accurate"
         #return self.p1Party[self.p1Lead].
         return True
-        
-    def makeVector(self):
+
+    def GetVector(self):
         theMonster = [] # this should contain the party and anything else that might be useful
         output = [] # this should contain the moves and switches people clicked
-        #if (self.isTurn0):
-            #for x in self.p1Party:
-                
-            #theMonster.append(self.first)
-        # else:
+        for x in self.p1Party:
+            vec = x.GetVector()
+            for y in vec:
+                theMonster.append(y)
+        
+        for x in self.p2Party:
+            vec = x.GetVector()
+            for y in vec:
+                theMonster.append(y)
 
-    # going to try to follow the PS turn style
-    def __str__(self):
-        if (self.isTurn0):
-            string = "Start\nP{} sends out: ".format(self.first)
-            # this logic probably matters
-            if (self.first == 1):
-                string += self.p1Lead + "\nP2 sends out: " + self.p2Lead
-            else:
-                string += self.p2Lead + "\nP1 sends out: " + self.p1Lead
-
-            if (len(self.fields) > 1):
-                for x in self.fields[1:]:
-                    string += "\n" + str(x) + "\n" # this part does not print properly but it's too much work
-            string += "End of turn 0"
+        theMonster.append(int(self.terrain))
+        theMonster.append(int(self.weather))
+        # encode trick/wonder room as true = 1, false = -1
+        if (self.trickRoom):
+            theMonster.append(1)
         else:
-            pass
+            theMonster.append(-1)
+        if (self.wonderRoom):
+            theMonster.append(1)
+        else:
+            theMonster.append(-1)
+        if (self.magicRoom):
+            theMonster.append(1)
+        else:
+            theMonster.append(-1)
 
-        return string
+        theMonster.append(self.p1Lead)
+        if (self.p1Party[self.p1Lead].Transformed):
+            theMonster.append(1)
+        else:
+            theMonster.append(-1)
+        theMonster.append(int(self.p1Hazards))
+        theMonster.append(int(self.p1Volatile))
+        for x in self.p1Boosts:
+            theMonster.append(x)
+        
+        theMonster.append(self.p2Lead)
+        if (self.p2Party[self.p2Lead].Transformed):
+            theMonster.append(1)
+        else:
+            theMonster.append(-1)
+        theMonster.append(int(self.p2Hazards))
+        theMonster.append(int(self.p2Volatile))
+        for x in self.p2Boosts:
+            theMonster.append(x)
+
+        # we also want the current field/terrains
+        if (self.isTurn0):
+            # at team preview, get teams for each side starting with 
+            # the player
+            # the output is no move for each side, and the lead as a switch
+            output.append(5)
+            output.append(5)
+            output.append(0)
+            output.append(0)
+        else:
+            output.append(self.p1Move)
+            output.append(self.p2Move)
+            # if not then we use the current pokemon as the other inputs?
+            output.append(self.p1Switch)
+            output.append(self.p2Switch)
+            
+            # and the output is still moves and potential switches
+        return theMonster, output
+
+    def GenerateFiles(self, inputCsv, outputCsv):
+        input, output = self.GetVector()
+        with open(inputCsv, "a") as fpw:
+            fpw.write(str(input[0]))
+            for x in input[1:]:
+                fpw.write("," + str(x))
+            fpw.write("\n")
+        with open(outputCsv, "a") as fpw:
+            fpw.write(str(output[0]))
+            for x in output[1:]:
+                fpw.write("," + str(x))
+            fpw.write("\n")
+        return
+    # going to try to follow the PS turn style
+    # this is extremely inaccurate right now
+    # def __str__(self):
+    #     if (self.isTurn0):
+    #         string = "Start\nP{} sends out: ".format(self.first)
+    #         # this logic probably matters
+    #         if (self.first == 1):
+    #             string += self.p1Lead + "\nP2 sends out: " + self.p2Lead
+    #         else:
+    #             string += self.p2Lead + "\nP1 sends out: " + self.p1Lead
+    # 
+    #         if (len(self.fields) > 1):
+    #             for x in self.fields[1:]:
+    #                 string += "\n" + str(x) + "\n" # this part does not print properly but it's too much work
+    #         string += "End of turn 0"
+    #     else:
+    #         pass
+    # 
+    #     return string
 
 
 ####################################################################################
@@ -639,29 +1044,82 @@ class Turn():
 # ability,gender and item: influence what sets are being run and decisions         #
 ####################################################################################
 class Pokemon():
-    # default values, idek if this is needed
-    # def __init__(self):
-    #     self.Pkmn = pkd.get(name='Porygon') # idk if this is necessary
-    #     # Name = 'Porygon'
-    #     self.Moves = [Move_List.Unknown, Move_List.Unknown, Move_List.Unknown, Move_List.Unknown]
-    #     self.Filled_Moves = 0
-    #     self.PP = [0, 0, 0, 0] # this might have to be the number used and not a count down
-    #     self.Ability = Ability_List.Unknown
-    #     self.Item = "" # this needs to be enumerated somehow; PS and PKHeX lack sane enums
-    #     self.Gender = Gender.Genderless
-    #     self.Level = 100 # this should be changed at some point
-    #     self.Speed = self.calcSpeed()
-    #     self.HP = 100
-    #     self.Boosts = [0, 0, 0, 0, 0]
-    #     self.Status = Status_List.non
-        
-    
     # initalizer for known pokemon
-    def __init__(self, name="Porygon", gender="Genderless"):
-        self.Pkmn = pkd.get(name=name)
+    def __init__(self, poke="Porygon", gender=0):
+        poke = poke.replace(" ", "-").replace(".", "")
+        
+        # fsr these always keep the wrong string through a replay
+        # the rest are non standard forms that pop up
+        if (poke == "Darmanitan"):
+            poke = "Darmanitan-standard"
+        elif(poke == "Toxtricity"): 
+            poke = "Toxtricity-amped"
+        elif (poke == "Mimikyu"):
+            poke = "Mimikyu-disguised"
+        elif (poke == "Basculin"):
+            poke = "Basculin-red-striped"
+        elif (poke == "Eiscue"):
+            poke = "Eiscue-ice"
+        elif (poke == "Indeedee-F"):
+            poke = "Indeedee-Female"
+        elif (poke == "Indeedee-M"):
+            poke = "Indeedee-Male"
+        elif (poke == "Aegislash"):
+            poke = "Aegislash-shield"
+        elif (poke == "Farfetch\\u2019d"):
+            poke = "Farfetchd"
+        elif (poke == "Sirfetch\\u2019d"):
+            poke = "Sirfetchd"
+        elif (poke == "Gastrodon-East"):
+            poke = "Gastrodon"
+        elif (poke == "Gastrodon-West"):
+            poke = "Gastrodon"
+        elif (poke == "Thundurus"):
+            poke = "Thundurus-Incarnate"
+        elif (poke == "Landorus"):
+            poke = "Landorus-Incarnate"
+        elif (poke == "Tornadus"):
+            poke = "Tornadus-Incarnate"
+        elif (poke == "Zygarde-10%"):
+            poke = "Zygarde-10"
+        elif (poke.startswith("Meowstic")):
+            if (gender == Gender.M):
+                if poke.endswith("-M"):
+                    poke += "ale"
+                else:
+                    poke += "-Male"
+            else:
+                if poke.endswith("-F"):
+                    poke += "emale"
+                else:
+                    poke += "-Female"
+        elif (poke == "Indeedee"):
+            if (gender == Gender.M):
+                poke += "-Male"
+            else:
+                poke += "-Female"
+        elif (poke == "Polteageist-Antique"):
+            poke = "Polteageist"
+        elif (poke == "Zarude-Dada"):
+            poke = "Zarude"
+        elif (poke == "Keldeo"):
+            poke = "Keldeo-ordinary"
+        elif (poke == "Lycanroc"):
+            poke = "Lycanroc-Midday"
+        elif (poke.startswith("Pikachu")):
+            poke = "Pikachu"
+        try:
+            self.Pkmn = pkd.get(name=poke)
+        except:
+            print("Unknown pokemon:", poke)
         self.Moves = [Move_List.Unknown, Move_List.Unknown, Move_List.Unknown, Move_List.Unknown]
-        self.Filled_Moves = 0
+        self.FilledMoves = 0
         self.PP = [0, 0, 0, 0]
+        theTypes = self.Pkmn.types
+        self.Type = [Types.NoType, Types.NoType]
+        for x in range(len(theTypes)):
+            self.Type[x] = Types[theTypes[x]]
+        self.OverrideType = [Types.NoType]
         self.Ability = Ability_List.Unknown
         self.Item = ""
         self.Gender = gender
@@ -669,37 +1127,82 @@ class Pokemon():
         self.Speed = self.calcSpeed()
         self.HP = 100
         self.Status = Status_List.non
+        self.Transformed = False
+        self.TransformMoves = [Move_List.Unknown, Move_List.Unknown, Move_List.Unknown, Move_List.Unknown]
+        self.TransformFilled = 0
+        self.TransformPP = [0, 0, 0, 0]
         
     def calcSpeed(self): # this will assume neutral speed 0 ev investment
         return ((2 * self.Pkmn.base_stats[5] + 31) * self.Level) / 100 + 5
         
     def GetVector(self):
-        stats = self.Pkmn.base_stats
-        return [self.Pkmn.dex, # dex number
+        self.stats = self.Pkmn.base_stats
+        vec = [
         self.stats[0], self.stats[1], self.stats[2], # HP,  Atk, Def
         self.stats[3], self.stats[4], self.stats[5], # SpA, SpD, Spe
-        self.Moves[0], self.PP[0],                   # move 1
-        self.Moves[1], self.PP[1],                   # move 2
-        self.Moves[2], self.PP[2],                   # move 3
-        self.Moves[3], self.PP[3],                   # move 4
-        self.Ability] # anything else should be appended here
+        int(self.Moves[0]), self.PP[0],                   # move 1
+        int(self.Moves[1]), self.PP[1],                   # move 2
+        int(self.Moves[2]), self.PP[2],                   # move 3
+        int(self.Moves[3]), self.PP[3],                   # move 4
+        int(self.Ability)] # anything else should be appended here
+        if (self.Transformed):
+            vec.append(1)
+        else:
+            vec.append(-1)
+        return vec
+
+    def AddMove(self, move):
+        # first check if transform is active or used
+        if (self.Transformed):
+            try:
+                ind = self.TransformMoves.index(move)
+            except:
+                self.TransformMoves[self.TransformFilled] = move
+                ind = self.FilledMoves
+            self.TransformPP[ind] += 1
+            return
+        elif (move == Move_List.Transform):
+            self.Transformed = True
+        # then check if the move exists
+        try:
+            ind = self.Moves.index(move)
+        except:
+            self.Moves[self.FilledMoves] = move
+            ind = self.FilledMoves
+            self.FilledMoves += 1
+        self.PP[ind] += 1
+        return
+    # this is a hack to solve ditto overflowing moves
+    def ResetMoves(self):
+        self.Moves = [Move_List.Unknown, Move_List.Unknown, Move_List.Unknown, Move_List.Unknown]
+        self.FilledMoves = 0
+        
+    def ResetTransformMoves(self):
+        self.TransformMoves = [Move_List.Unknown, Move_List.Unknown, Move_List.Unknown, Move_List.Unknown]
+        self.FilledMoves = 0
 
     # Tries to follow the showdown format because why not, some things are changed for readability
     def __str__(self):
-        string = self.name
+        string = self.Pkmn.name
         if (self.Item):
             string += "@ " + self.Item
-        string += "\nAbility: " + self.Ability
+        string += "\nAbility: " + str(self.Ability) + "\n"
         # string += "EVs:" # this would not work unless we galaxy brain predict them somehow
         # string += Nature + " Nature" # above
         
-        if (self.Moves[0] == self.Move.Unknown):
+        if (self.Moves[0] == Move_List.Unknown):
             string += "No known moves"
+        elif (self.Transformed):
+            string += "- " + self.TransformMoves[0].name + "\n" + \
+                      "- " + self.TransformMoves[1].name + "\n" + \
+                      "- " + self.TransformMoves[2].name + "\n" + \
+                      "- " + self.TransformMoves[3].name + "\n"
         else:
-            string += "- " + self.Moves[0].name + "(" + self.PP[0] + ")\n" + \
-                      "- " + self.Moves[1].name + "(" + self.PP[1] + ")\n" + \
-                      "- " + self.Moves[2].name + "(" + self.PP[2] + ")\n" + \
-                      "- " + self.Moves[3].name + "(" + self.PP[3] + ")\n"
+            string += "- " + self.Moves[0].name + "(" + str(self.PP[0]) + ")\n" + \
+                      "- " + self.Moves[1].name + "(" + str(self.PP[1]) + ")\n" + \
+                      "- " + self.Moves[2].name + "(" + str(self.PP[2]) + ")\n" + \
+                      "- " + self.Moves[3].name + "(" + str(self.PP[3]) + ")\n"
+        return string
 
 # Gender is something that PS keeps track of so we might as well have it
 class Gender(IntEnum):
@@ -708,12 +1211,54 @@ class Gender(IntEnum):
     F = 2
 
 # Volatile status are things that can get cleared over time or on switch
-class Volatile_List(IntEnum):
-    Bind = auto()
-    Block = auto()
-    Confusion = auto()
+class Volatile_List(IntFlag):
+    NoVolatile = 0
+    bind = auto()
+    block = auto()
+    confusion = auto()
+    substitute = auto()
+    MagmaStorm = auto()
+    LeechSeed = auto()
+    Taunt = auto()
+    StickyBarb = auto()
     Substitute = auto()
-    
+    FutureSight = auto()
+    ThroatChop = auto()
+    Yawn = auto()
+    Disable = auto()
+    FocusEnergy = auto()
+    FlashFire = auto()
+    ThunderCage = auto()
+    Wrap = auto()
+    Encore = auto()
+    Autotomize = auto()
+    Curse = auto()
+    Illusion = auto() # probably drop this because I dropped zoroark
+    perish3 = auto()
+    perish2 = auto()
+    perish1 = auto()
+    perish0 = auto()
+    SandTomb = auto()
+    Whirlpool = auto()
+    NeutralizingGas = auto()
+    typechange = auto()
+    Infestation = auto()
+    Octolock = auto()
+    NoRetreat = auto()
+    SmackDown = auto()
+    Torment = auto()
+    Attract = auto()
+    DoomDesire = auto()
+    stockpile1 = auto()
+    stockpile2 = auto()
+    stockpile3 = auto()
+    AquaRing = auto()
+    SlowStart = auto()
+    SnapTrap = auto()
+    MagnetRise = auto()
+    FireSpin = auto()
+    Imprison = auto()
+    PowerTrick = auto()
 
 class Stat_List(IntEnum):
     atkS = 0
@@ -721,6 +1266,32 @@ class Stat_List(IntEnum):
     spaS = 2
     spdS = 3
     speS = 4
+    evasionS = 5
+    accuracyS = 6
+    
+class Types(IntEnum):
+    NoType = 0
+    normal = 1
+    fighting = 2
+    flying = 3
+    poison = 4
+    ground = 5
+    rock = 6
+    bug = 7
+    ghost = 8
+    steel = 9
+    fire = 10
+    water = 11
+    grass = 12
+    electric = 13
+    psychic = 14
+    ice = 15
+    dragon = 16
+    dark = 17
+    fairy = 18
+    question = 19
+    
+
 ####################################################################################
 # Move and ability lists derived from here because they are sorted                 #
 # https://github.com/kwsch/PKHeX/blob/master/PKHeX.Core/Game/Enums/                #
@@ -728,7 +1299,7 @@ class Stat_List(IntEnum):
 # since gen 1                                                                      #
 ####################################################################################
 class Move_List(IntEnum):
-    Unknown = auto() # the only change because None is a keyword
+    Unknown = 0 # the only change because None is a keyword
     Pound = auto()
     KarateChop = auto()
     DoubleSlap = auto()
@@ -1558,7 +2129,7 @@ class Move_List(IntEnum):
 
 # status effects, they get cured by lum berry for definition?
 class Status_List(IntEnum):
-    non = auto()
+    non = 0
     brn = auto()
     par = auto()
     frz = auto()
@@ -1569,27 +2140,31 @@ class Status_List(IntEnum):
 # Field effects are things that affect both sides
 # This is the first and second block in the field of the damage calc
 # Missing ones cannot exist in OU
-class Field_List(IntEnum):
-    NoField = auto()
+class Terrain_List(IntEnum):
+    NoTerrain = 0
     ElectricTerrain = auto()
     GrassyTerrain = auto()
     MistyTerrain = auto()
     PsychicTerrain = auto()
-    Sun = auto()
-    Rain = auto()
-    Sand = auto()
+
+class Weather_List(IntEnum):
+    NoWeather = 0
+    SunnyDay = auto()
+    RainDance = auto()
+    Sandstorm = auto()
     Hail = auto()
-    TrickRoom = auto()
-    WonderRoom = auto()
     
 # Side effects are things that are only found on one side
 # This is the third block on the damage calc
 # Missing ones cannot be in OU
-class Hazards_List(Flag):
-    Stealth_Rock = auto()
+class Hazards_List(IntFlag):
+    NoHazards = 0
+    StealthRock = auto()
     Spikes = auto()
     Spikes2 = auto()
     Spikes3 = auto()
+    ToxicSpikes = auto()
+    ToxicSpikes2 = auto()
     Reflect = auto()
     LightScreen = auto()
     Protect = auto()
@@ -1598,10 +2173,12 @@ class Hazards_List(Flag):
     Tailwind = auto()
     AuroraVeil = auto()
     Battery = auto()
+    StickyWeb = auto()
+    Safeguard = auto()
 
 # see Move dscription
 class Ability_List(IntEnum):
-    Unknown = auto()
+    Unknown = 0
     Stench = auto()
     Drizzle = auto()
     SpeedBoost = auto()
@@ -1869,3 +2446,15 @@ class Ability_List(IntEnum):
     GrimNeigh = auto()
     AsOneI = auto()
     AsOneG = auto()
+
+if (__name__ == "__main__"):
+    for path, dirs, files in os.walk("scrape/"):
+        for filename in files:
+            full = os.path.join(path, filename)
+            csv = "scrape-out/" + filename[:-5] # removes '.json'
+            try:
+                Replay(full, csv)
+            except:
+                print(" Error at this file")
+                traceback.print_exc()
+                pass
