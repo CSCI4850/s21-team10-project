@@ -1,0 +1,59 @@
+Toxapex (M) @ Black Sludge  
+Ability: Regenerator  
+EVs: 252 HP / 120 Def / 132 SpD / 4 Spe  
+Impish Nature  
+- Scald  
+- Knock Off  
+- Recover  
+- Toxic Spikes  
+
+Garchomp (M) @ Leftovers  
+Ability: Rough Skin  
+EVs: 252 Atk / 4 SpD / 252 Spe  
+Jolly Nature  
+- Scale Shot  
+- Earthquake  
+- Fire Fang  
+- Swords Dance  
+
+Excadrill (F) @ Leftovers  
+Ability: Sand Rush  
+Shiny: Yes  
+EVs: 156 Atk / 100 SpD / 252 Spe  
+Jolly Nature  
+- Earthquake  
+- Iron Head  
+- Rapid Spin  
+- Toxic  
+
+Tyranitar (F) @ Leftovers  
+Ability: Sand Stream  
+Shiny: Yes  
+EVs: 248 HP / 224 SpD / 36 Spe  
+Careful Nature  
+- Stealth Rock  
+- Rock Blast  
+- Earthquake  
+- Thunder Wave  
+
+Skarmory (M) @ Rocky Helmet  
+Ability: Sturdy  
+Shiny: Yes  
+EVs: 248 HP / 252 Def / 8 Spe  
+Impish Nature  
+IVs: 0 Atk  
+- Spikes  
+- Body Press  
+- Roost  
+- Iron Defense  
+
+Clefable (F) @ Life Orb  
+Ability: Magic Guard  
+Shiny: Yes  
+EVs: 228 HP / 220 Def / 60 Spe  
+Bold Nature  
+IVs: 0 Atk  
+- Moonblast  
+- Thunder  
+- Soft-Boiled  
+- Calm Mind
