@@ -2,7 +2,7 @@
 
 ### How to use:
 
-0. Requirements: pypokedex, tensorflow, jupyter. If you wish to run without collecting your own data, extract replays.zip in the same directory as the rest of the files. 
+0. Requirements: [pypokedex](https://pypi.org/project/pypokedex/), tensorflow, jupyter. If you wish to run without collecting your own data, extract replays.zip in the same directory as the rest of the files. 
 
 1. Scrape replays using scrapeReplay.py You need to have a scrape folder present, and it will put up to 50 of the most recent replays in that folder. 
 
